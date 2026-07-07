@@ -1414,6 +1414,42 @@ class TestTelegramSender(unittest.TestCase):
         self.assertNotIn("# 日报", rendered)
 
     @mock.patch("src.notification_sender.telegram_sender.requests.post")
+    def test_send_chunked_oversized_section_stays_below_limit(self, mock_post):
+        """单个段落超过 4096 字符时必须硬切，且按转义后长度计算（回归 Telegram HTTP 400: message is too long）。"""
+        mock_post.return_value = _response(200, {"ok": True})
+        cfg = _config(telegram_bot_token="BOT", telegram_chat_id="CHAT")
+        sender = TelegramSender(cfg)
+        # 无 \n---\n 分隔符的长英文报告，含大量待转义字符 ()[]
+        content = "\n".join(
+            f"Line {i}: market review (details) [note {i}] with extra commentary text" for i in range(150)
+        )
+        self.assertGreater(len(content), 4096)
+
+        result = sender.send_to_telegram(content)
+
+        self.assertTrue(result)
+        self.assertGreater(mock_post.call_count, 1)
+        for call in mock_post.call_args_list:
+            self.assertLessEqual(len(call.kwargs["json"]["text"]), 4096)
+
+    @mock.patch("src.notification_sender.telegram_sender.requests.post")
+    def test_send_single_message_uses_escaped_length(self, mock_post):
+        """原始长度略低于 4096 但转义后超限的内容必须走分段发送。"""
+        mock_post.return_value = _response(200, {"ok": True})
+        cfg = _config(telegram_bot_token="BOT", telegram_chat_id="CHAT")
+        sender = TelegramSender(cfg)
+        # 4000 字符原文，转义后 () 翻倍为 \( \)，超过 4096
+        content = "\n".join("(x)" * 25 for _ in range(40))
+        self.assertLessEqual(len(content), 4096)
+
+        result = sender.send_to_telegram(content)
+
+        self.assertTrue(result)
+        self.assertGreater(mock_post.call_count, 1)
+        for call in mock_post.call_args_list:
+            self.assertLessEqual(len(call.kwargs["json"]["text"]), 4096)
+
+    @mock.patch("src.notification_sender.telegram_sender.requests.post")
     def test_send_plain_text_fallback_handles_non_json_200(self, mock_post):
         markdown_error = _response(400)
         markdown_error.text = (

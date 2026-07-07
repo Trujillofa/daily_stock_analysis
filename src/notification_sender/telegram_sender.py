@@ -7,7 +7,7 @@ Telegram 发送提醒服务
 2. 通过 Telegram Bot API 发送 图片消息
 """
 import logging
-from typing import Optional
+from typing import List, Optional
 import requests
 import time
 import re
@@ -84,7 +84,8 @@ class TelegramSender:
             # Telegram 消息最大长度 4096 字符
             max_length = 4096
 
-            if len(content) <= max_length:
+            # 长度必须按 Markdown 转换（转义）后的实际发送内容计算
+            if self._effective_length(content) <= max_length:
                 # 单条消息发送
                 return self._send_telegram_message(api_url, chat_id, content, message_thread_id, timeout_seconds=timeout_seconds)
             else:
@@ -231,6 +232,39 @@ class TelegramSender:
         logger.error(f"响应内容: {response.text}")
         return False
 
+    def _effective_length(self, text: str) -> int:
+        """按 Markdown 转换（转义）后的实际发送内容计算长度"""
+        return len(self._convert_to_telegram_markdown(text))
+
+    def _split_oversized_section(self, section: str, budget: int) -> List[str]:
+        """将超过预算的段落按行硬切；单行仍超限时按字符兜底切分"""
+        pieces: List[str] = []
+        current: List[str] = []
+        current_length = 0
+
+        def _flush():
+            nonlocal current, current_length
+            if current:
+                pieces.append("\n".join(current))
+                current = []
+                current_length = 0
+
+        for line in section.split("\n"):
+            line_length = self._effective_length(line) + 1  # +1 for "\n"
+            if line_length > budget:
+                _flush()
+                # 转义最多使长度翻倍，按预算一半切分原始字符保证不超限
+                step = max(budget // 2, 1)
+                for start in range(0, len(line), step):
+                    pieces.append(line[start:start + step])
+                continue
+            if current and current_length + line_length > budget:
+                _flush()
+            current.append(line)
+            current_length += line_length
+        _flush()
+        return pieces
+
     def _send_telegram_chunked(
         self,
         api_url: str,
@@ -245,13 +279,22 @@ class TelegramSender:
         # 按段落分割
         sections = content.split("\n---\n")
 
+        # 单个段落超长时先按行硬切，否则拼出的消息块仍会超过 Telegram 限制
+        section_budget = max_length - 5
+        expanded_sections: List[str] = []
+        for section in sections:
+            if self._effective_length(section) > section_budget:
+                expanded_sections.extend(self._split_oversized_section(section, section_budget))
+            else:
+                expanded_sections.append(section)
+
         current_chunk = []
         current_length = 0
         all_success = True
         chunk_index = 1
 
-        for section in sections:
-            section_length = len(section) + 5  # +5 for "\n---\n"
+        for section in expanded_sections:
+            section_length = self._effective_length(section) + 5  # +5 for "\n---\n"
 
             if current_length + section_length > max_length:
                 # 发送当前块
