@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 <!-- 新条目格式：- [类型] 描述（类型取值：新功能/改进/修复/文档/测试/chore）-->
 <!-- 每条独立一行追加到本段末尾，无需分类标题，合并时冲突最小 -->
 - [修复] Telegram 长消息分段按转义后长度计算，超长段落按行硬切，修复英文报告推送 HTTP 400: message is too long
+- [修复] 历史 K 线滞后一天时实时覆盖 today 同步下移 yesterday，修复报告快照昨收/涨跌额/振幅跨日错位
 
 ## [3.23.0] - 2026-06-20
 

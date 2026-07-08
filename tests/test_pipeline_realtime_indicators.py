@@ -230,6 +230,74 @@ class TestEnhanceContextRealtimeOverride(unittest.TestCase):
 
     @patch("src.core.pipeline.get_market_now")
     @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
+    def test_stale_history_today_shifts_to_yesterday_on_realtime_override(
+        self, _mock_market, mock_now
+    ) -> None:
+        """历史 K 线滞后一天时，历史 today（上一交易日）必须下移为 yesterday。
+
+        回归场景：历史数据只到 T-1，实时行情为 T 日。若不下移，
+        快照的昨收取到 T-2 收盘，昨收/涨跌额/振幅跨日错位。
+        """
+        today = date.today()
+        mock_now.return_value = datetime(
+            today.year, today.month, today.day, 10, 0, tzinfo=timezone.utc
+        )
+        t1 = (today - timedelta(days=1)).isoformat()  # 上一交易日（历史最新）
+        t2 = (today - timedelta(days=2)).isoformat()
+        context = {
+            "code": "600519",
+            "date": t1,
+            "today": {"close": 1188.80, "volume": 2736500, "date": t1},
+            "yesterday": {"close": 1206.91, "volume": 3000000, "date": t2},
+        }
+        quote = _make_realtime_quote(price=1199.30, volume=2577600, change_pct=0.88)
+        trend = TrendAnalysisResult(
+            code="600519", ma5=1198.49, ma10=1191.86, ma20=1206.92
+        )
+        enhanced = self.pipeline._enhance_context(
+            context, quote, None, trend, "贵州茅台"
+        )
+        # 历史 today 下移为 yesterday，昨收应为 T-1 收盘而非 T-2
+        self.assertEqual(enhanced["yesterday"]["close"], 1188.80)
+        self.assertEqual(enhanced["yesterday"]["date"], t1)
+        self.assertEqual(enhanced["today"]["close"], 1199.30)
+        self.assertEqual(enhanced["today"]["date"], today.isoformat())
+        # 涨跌幅按正确昨收计算：(1199.30-1188.80)/1188.80 ≈ 0.88%
+        self.assertAlmostEqual(enhanced["price_change_ratio"], 0.88, places=2)
+        self.assertAlmostEqual(
+            enhanced["volume_change_ratio"], 2577600 / 2736500, places=2
+        )
+
+    @patch("src.core.pipeline.get_market_now")
+    @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
+    def test_same_day_history_keeps_yesterday_on_realtime_override(
+        self, _mock_market, mock_now
+    ) -> None:
+        """历史 K 线已含当日 bar 时（盘中刷新），yesterday 不应被改动。"""
+        today = date.today()
+        mock_now.return_value = datetime(
+            today.year, today.month, today.day, 10, 0, tzinfo=timezone.utc
+        )
+        t1 = (today - timedelta(days=1)).isoformat()
+        context = {
+            "code": "600519",
+            "date": today.isoformat(),
+            "today": {"close": 1195.00, "date": today.isoformat()},
+            "yesterday": {"close": 1188.80, "volume": 2736500, "date": t1},
+        }
+        quote = _make_realtime_quote(price=1199.30, change_pct=0.88)
+        trend = TrendAnalysisResult(
+            code="600519", ma5=1198.49, ma10=1191.86, ma20=1206.92
+        )
+        enhanced = self.pipeline._enhance_context(
+            context, quote, None, trend, "贵州茅台"
+        )
+        self.assertEqual(enhanced["yesterday"]["close"], 1188.80)
+        self.assertEqual(enhanced["yesterday"]["date"], t1)
+        self.assertEqual(enhanced["today"]["close"], 1199.30)
+
+    @patch("src.core.pipeline.get_market_now")
+    @patch("src.core.pipeline.get_market_for_stock", return_value="cn")
     def test_tencent_688691_volume_change_ratio_uses_normalized_share_volume(
         self, _mock_market, mock_now
     ) -> None:

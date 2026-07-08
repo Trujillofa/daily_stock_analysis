@@ -934,13 +934,18 @@ class StockAnalysisPipeline:
         if realtime_quote and trend_result and trend_result.ma5 > 0:
             price = getattr(realtime_quote, 'price', None)
             if price is not None and price > 0:
-                yesterday_close = None
-                if enhanced.get('yesterday') and isinstance(enhanced['yesterday'], dict):
-                    yesterday_close = enhanced['yesterday'].get('close')
                 orig_today = enhanced.get('today') or {}
                 market_today = get_market_now(
                     get_market_for_stock(normalize_stock_code(enhanced.get('code', '')))
                 ).date().isoformat()
+                # 历史最新 K 线早于实时行情日期时，历史 today 实为上一交易日，
+                # 需下移为 yesterday，否则昨收/涨跌额/振幅会跨日错位（隔一个交易日）
+                orig_today_date = str(orig_today.get('date') or '')[:10]
+                if orig_today_date and orig_today_date < market_today:
+                    enhanced['yesterday'] = orig_today
+                yesterday_close = None
+                if enhanced.get('yesterday') and isinstance(enhanced['yesterday'], dict):
+                    yesterday_close = enhanced['yesterday'].get('close')
                 source = getattr(realtime_quote, 'source', None)
                 source_name = getattr(source, 'value', source)
                 source_name = str(source_name) if source_name is not None else 'unknown'
