@@ -2279,10 +2279,14 @@ class DsaEastMoneyHotspotProvider:
 
     def _fetch_board_changes_raw(self) -> Any:
         import akshare as ak
+        from data_provider.akshare_fetcher import _akshare_call_with_timeout
 
         if self._board_changes_raw_cache is not None:
             return self._board_changes_raw_cache.copy()
-        df = ak.stock_board_change_em()
+        df = _akshare_call_with_timeout(
+            ak.stock_board_change_em,
+            call_name="ak.stock_board_change_em",
+        )
         self._board_changes_raw_cache = df
         return df.copy() if df is not None else df
 

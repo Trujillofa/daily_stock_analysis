@@ -1246,6 +1246,14 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
             def _fetch_eastmoney_constituents(self, topic: str, *, source: str) -> Any:
                 return pd.DataFrame()
 
+            def _fetch_board_changes_with_fallback(self) -> Any:
+                # 避免 _is_industry_hotspot 前置判断真实调用 ak.stock_board_change_em()
+                return pd.DataFrame()
+
+            def stock_board_industry_name_em(self) -> Any:
+                # 避免 _is_industry_hotspot 回退分支真实调用行业板块排行接口
+                return pd.DataFrame()
+
             def _find_board_change(self, topic: str) -> Dict[str, Any]:
                 return {}
 
@@ -1373,6 +1381,14 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
                     "涨跌幅": 3.2,
                 }])
 
+            def _fetch_board_changes_with_fallback(self) -> Any:
+                # 避免 _is_industry_hotspot 前置判断真实调用 ak.stock_board_change_em()
+                return pd.DataFrame()
+
+            def stock_board_industry_name_em(self) -> Any:
+                # 避免 _is_industry_hotspot 回退分支真实调用行业板块排行接口
+                return pd.DataFrame()
+
             def _fetch_ths_summary_event(self, topic: str) -> str:
                 return "需求升温"
 
@@ -1415,6 +1431,11 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
 
             def _fetch_ths_constituents(self, topic: str) -> Any:
                 raise AssertionError("industry hotspots must not use concept constituents")
+
+            def _fetch_board_changes_with_fallback(self) -> Any:
+                # _is_industry_hotspot 调用 concept board-change 接口做前置判断；
+                # 测试须离线运行，避免真实调用 ak.stock_board_change_em() 网络挂起。
+                return pd.DataFrame()
 
             def _find_board_change(self, topic: str) -> Dict[str, Any]:
                 return {}
@@ -1490,7 +1511,18 @@ class AlphaSiftOpportunitiesApiTestCase(unittest.TestCase):
                 return board_changes
 
         provider = alphasift_service.DsaEastMoneyHotspotProvider()
-        with patch.dict("sys.modules", {"akshare": _MockAkshare()}):
+        with (
+            patch.dict("sys.modules", {"akshare": _MockAkshare()}),
+            # _fetch_board_changes_raw 通过 _akshare_call_with_timeout 在子进程中执行 akshare 调用；
+            # 子进程使用 spawn 方式启动全新解释器，不会继承本测试对 sys.modules 的 mock，
+            # 且 bound 到局部类的 mock 方法也无法被 pickle。此处绕开子进程机制，直接调用被测函数，
+            # 仅验证 _fetch_board_changes 的缓存与派生字段逻辑，不重复验证超时机制本身
+            # （超时机制已在 tests/test_akshare_history_timeout.py 中覆盖）。
+            patch(
+                "data_provider.akshare_fetcher._akshare_call_with_timeout",
+                side_effect=lambda func, *args, timeout=None, call_name="akshare", **kwargs: func(*args, **kwargs),
+            ),
+        ):
             frame = provider._fetch_board_changes()
             summary = provider._find_board_change("AI算力")
 

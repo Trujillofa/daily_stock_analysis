@@ -1944,7 +1944,10 @@ class AkshareFetcher(BaseFetcher):
             self._enforce_rate_limit()
 
             logger.info("[API调用] ak.stock_board_industry_name_em() 获取板块排行...")
-            df = ak.stock_board_industry_name_em()
+            df = _akshare_call_with_timeout(
+                ak.stock_board_industry_name_em,
+                call_name="ak.stock_board_industry_name_em",
+            )
             if df is not None and not df.empty:
                 change_col = '涨跌幅'
                 name = '板块名称'
@@ -1959,7 +1962,11 @@ class AkshareFetcher(BaseFetcher):
             self._enforce_rate_limit()
 
             logger.info("[API调用] ak.stock_sector_spot() 获取行业板块排行(新浪)...")
-            df = ak.stock_sector_spot(indicator='行业')
+            df = _akshare_call_with_timeout(
+                ak.stock_sector_spot,
+                indicator='行业',
+                call_name="ak.stock_sector_spot",
+            )
             if df is None or df.empty:
                 return None
             change_col = '涨跌幅'
@@ -1979,7 +1986,10 @@ class AkshareFetcher(BaseFetcher):
             self._enforce_rate_limit()
 
             logger.info("[API调用] ak.stock_board_concept_name_em() 获取概念排行...")
-            df = ak.stock_board_concept_name_em()
+            df = _akshare_call_with_timeout(
+                ak.stock_board_concept_name_em,
+                call_name="ak.stock_board_concept_name_em",
+            )
             if df is None or df.empty:
                 return None
 
